@@ -1,6 +1,6 @@
 connections:
   default:
-    smtp_server: smtp.gmail.com
-    smtp_port: 587
-    smtp_user: user@gmail.com
-    smtp_password: extremelysecurepassword
+    server: smtp.gmail.com
+    port: 587
+    user: user@gmail.com
+    password: extremelysecurepassword

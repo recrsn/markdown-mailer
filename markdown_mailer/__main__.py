@@ -1,12 +1,13 @@
+import csv
 import os
-from typing import cast
-from typing import Iterable
 
 import click
-import frontmatter
 import yaml
 
 from markdown_mailer import mailer
+from markdown_mailer.connection import parse_connection
+from markdown_mailer.list_mailer import send_list_mail
+from markdown_mailer.mail import parse_mail
 
 
 @click.group
@@ -19,9 +20,14 @@ def cli() -> None:
     pass
 
 
-def resolve_attachments(attachments: Iterable[str], email_file: str) -> Iterable[str]:
-    email_path = os.path.dirname(email_file)
-    return [os.path.join(email_path, attachment) for attachment in attachments]
+def _load_connections(config: click.File):
+    with config:
+        mail_config = yaml.load(config, Loader=yaml.SafeLoader)
+        connections = {
+            name: parse_connection(name, params)
+            for name, params in mail_config['connections'].items()
+        }
+    return connections
 
 
 @cli.command()
@@ -32,20 +38,32 @@ def send(mail: click.File, config: click.File, connection: str):
     """
     Send an email
     """
-    with config:
-        mail_config = yaml.load(config, Loader=yaml.SafeLoader)
-        conn = mail_config['connections'][connection]
+    connections = _load_connections(config)
 
     with mail as f:
-        email_file = frontmatter.load(f)
-        metadata = email_file.metadata
-        from_ = cast(str, metadata['from'])
-        attachments = resolve_attachments(cast(list[str], metadata.pop('attachments', [])), mail.name)
-        mailer.send_mail(connection=conn,
-                         body=email_file.content,
-                         from_=from_,
-                         attachments=attachments,
-                         **metadata)
+        email = parse_mail(f.read(), os.path.dirname(mail.name))
+        mailer.send_mail(connections[connection], email)
+
+
+@cli.command()
+@click.option('--config', type=click.File('r'), default='mailer.yml')
+@click.option('--connection', type=str, default='default')
+@click.argument('template', type=click.File('r'))
+@click.argument('context', type=click.File('r'))
+def send_list(connection: str, config: click.File, template: str, context: click.File):
+    """
+    Send an email to a list of recipients
+    """
+    connections = _load_connections(config)
+
+    template_name = os.path.basename(template)
+    base_dir = os.path.dirname(template)
+
+    with context as f:
+        reader = csv.DictReader(f)
+        context = list(reader)
+
+    send_list_mail(connections[connection], context, template_name, base_dir)
 
 
 if __name__ == '__main__':
